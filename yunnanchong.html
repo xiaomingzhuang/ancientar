@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head> 
+		<title>webgl_ar</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	</head>
+<link href="yunnanchong/integration-object.css" rel="stylesheet" />
+<script src="yunnanchong/JSARToolKit.js"></script>
+<script src="yunnanchong/three.js "></script>
+<script src="js/shaderwater.js"></script>
+<script src="js/ShaderGodRays.js"> </script>
+<script src="js/FresnelShader.js"></script>
+<script src="js/libs/tween.min.js"></script>
+<script src="js/Sparks.js"></script>
+<script src="js/Detector.js"></script>
+<script src="js/ParticleEngine.js"></script> 
+<script src="js/ParticleEngineExamples.js"></script>
+<script src="yunnanchong/models.js"></script>
+<script src="yunnanchong/fund.js"></script>
+<script src="yunnanchong/particle.js"></script>
+<script src="yunnanchong/arvideo.js"></script>
+<script src="yunnanchong/corrupt.js"></script>
+<script src="yunnanchong/basicscene.js"></script>
+<script>
+var clock = new THREE.Clock();
+var markers = {};
+var lastTime = 0;
+var timerrunning = false;
+var timerid;//到期消失
+var timerid3;//没有mark消失
+var scene;
+var loader = new THREE.JSONLoader();
+window.onload = function () {
+	initRenderer(); 
+	initText();
+	//THREEJS场景管理部分
+	createSceneAndCamera();
+	createLight();
+	//视频背景
+	var videoTex = new THREE.Texture(videoCanvas);
+	var plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2, 0), new THREE.MeshBasicMaterial({
+				map : videoTex
+			}));
+	plane.material.depthTest = false;
+	plane.material.depthWrite = false;
+	var videoCam = new THREE.Camera();
+	var videoScene = new THREE.Scene();
+	videoScene.add(plane);
+	videoScene.add(videoCam);
+	//包围盒&气泡
+	createBubbleAndBox();
+	//第一个模型
+	loadFirstModel();	
+	//第三个模型
+	loadThirdModel();
+	//水面
+	loadWaterFace();	
+	//地球仪
+	loadEarth();
+	//化石
+	loadStone();
+	//金字塔
+	loadPyramid();
+	initCorrupt();
+	initParticleEngine();	
+	initparticle();
+	//生成models	
+	generateModels();
+	setInterval(render, 33);
+	function render() {
+		//视频背景部分
+		if (video.ended)
+			video.play();
+		if (video.paused)
+			return;
+		if (window.paused)
+			return;
+		if (video.currentTime == video.duration) {
+			video.currentTime = 0;
+		}
+		if (video.currentTime == lastTime)
+			return;
+		lastTime = video.currentTime;
+		videoCanvas.getContext('2d').drawImage(video, 0, 0);
+		ctx.drawImage(videoCanvas, 0, 0, 320, 240);
+		var dt = new Date().getTime();
+		canvas.changed = true;
+		videoTex.needsUpdate = true;
+		//判别部分
+		var t = new Date();
+		var detected = detector.detectMarkerLite(raster, threshHold);
+		for (var idx = 0; idx < detected; idx++) {
+			var id = detector.getIdMarkerData(idx);
+			var currId;
+			if (id.packetLength > 4) {
+				currId =  - 1;
+			} else {
+				currId = 0;
+				for (var i = 0; i < id.packetLength; i++) {
+					currId = (currId << 8) | id.getPacketData(i);
+				}
+			}
+			if (!markers[currId]) {
+				markers[currId] = {};
+			}
+			detector.getTransformMatrix(idx, resultMat);
+			markers[currId].age = 0;
+			markers[currId].transform = Object.asCopy(resultMat);
+		}
+		//删除过期的
+		for (var i in markers) {
+			var r = markers[i];
+			if (r.age > 1) {
+				delete markers[i];
+				scene.remove(r.model);
+			}
+			r.age++;
+		}
+		selectModel();
+		var timer = 0.0001 * Date.now();
+		for (var i = 0, il = spheres.length; i < il; i++) {
+			var sphere = spheres[i];
+			sphere.position.x = 100 * Math.cos(timer + i);
+			sphere.position.y = Math.sin(timer + i * 1.1) * 85 - 15;
+		}
+		var delta = clock.getDelta();
+		verticalMirror.material.uniforms.time.value += delta;
+		//骨骼动画更新
+		THREE.AnimationHandler.update(delta);
+		//粒子效果更新
+		particleUpdate(delta);		
+		//粒子效果更新2
+		engine.update(delta * 0.5);
+		//粒子塌陷更新
+		corruptUpdate(delta);
+		renderer.clear();
+		renderer.render(videoScene, videoCam);
+		renderer.render(scene, camera);
+	}
+
+	
+	
+	function selectModel() {
+		var count = 0;
+		for (var i in markers) {
+			count++;
+			var m = markers[i];
+			if (!m.model) {
+				switch (i) {
+				case "0":
+					m.model = models[0];
+					models[0].add(horsemesh);
+					//models[0].add(cubemesh);
+					for (var i = 0, il = spheres.length; i < il; i++) {
+						var sphere = spheres[i];
+						models[0].add(sphere);
+					}
+					//models[0].add(verticalMirrorMesh);
+					models[0].add(group);
+					sparksEmitter.start();
+					document.getElementById('Div1').innerHTML = "";
+					if (timerrunning == false) {
+						console.log("start timer");
+						console.log(timerrunning);
+						timerid=setTimeout(parstop,15000);
+						timerrunning = true;
+					}
+					text2.style.display="none";
+					break;
+				case "1":
+					m.model = models[1];
+					models[1].add(treemesh);
+					text2.style.display="block";
+					document.getElementById('Div1').innerHTML = "<font size='5' color='red'>云南虫发现于云南澄江</font>";
+					break;
+				case "2":
+					m.model = models[2];
+					models[2].add(horsemesh2);
+					text2.style.display="block";
+					document.getElementById('Div1').innerHTML = 
+            "  <font size='3' color='red'>云南虫头顶长有一个大吸盘，可以用于吸附在别的动物身<br />"+
+            "上；云南虫的鳃腔较大，发育有7对鳃弓和一中柱，鳃<br />"+
+            "腔末端具一围鳃孔。云南虫正是通过这一系列特殊身体结<br />"+
+            "构营滤食生活，在口部经过初步筛选的小颗粒进入鳃腔<br />"+
+            "，食物颗粒剂氧气在鳃腔中流动并被鳃丝附着，并通过咽<br />"+
+            "进入肠道，最后排出体外。<br />"+
+            "  云南虫最特别在于其拥有了脊椎的前身——脊索，比较<br />"+
+            "柔软，容易受到外力伤害，类似于今天脊髓中的软性物质<br />"+
+            "身体神经单元几种的脊索上，肢体的感觉可以通过脊<br />"+
+            "索传到全身。</font>";
+            break;
+					break;
+				case "3":
+					m.model = models[3];
+					models[3].add(stonemesh);
+					document.getElementById('Div1').innerHTML = "";
+					text2.style.display="none";
+					break;
+				case "4":
+					m.model = models[4];
+					models[4].add(pyramidmesh);
+					document.getElementById('Div1').innerHTML = "";
+					text2.style.display="none";
+					break;
+				case "5":
+					m.model = models[5];
+					models[5].add(parent);
+					models[5].add(engineroot);
+					document.getElementById('Div1').innerHTML = "";
+					text2.style.display="none";
+					break;
+				default:
+					break;
+				}
+				m.model.add(light1);
+				m.model.add(light2);
+				m.model.matrixAutoUpdate = false;
+				//cubemesh.position.z = -50;
+				scene.add(m.model);
+			}
+			copyMatrix(m.transform, tmp);
+			m.model.matrix.setFromArray(tmp);
+			m.model.matrixWorldNeedsUpdate = true;
+		}
+		if (count == 0) {
+			//console.log("count=0");
+			text2.style.display="none";
+			document.getElementById('Div1').innerHTML = "";
+			sparksEmitter.stop();
+			if (timerrunning == true) {
+				timerid3 = setTimeout(function () {
+						for (i = 0; i < particles.vertices.length; i++) {
+							particles.vertices[i].x = Number.POSITIVE_INFINITY;
+							particles.vertices[i].y = Number.POSITIVE_INFINITY;
+							particles.vertices[i].z = Number.POSITIVE_INFINITY;
+						}
+					}, 1000);
+			}
+			timerrunning = false;
+		}
+	}
+};
+
+</script>
+<script type = "x-shader/x-vertex" id = "vertexshader">
+        attribute float size;
+        attribute vec3 pcolor;
+        varying vec3 vColor;
+        void main() {
+          vColor = pcolor;
+          vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+          gl_PointSize = 0.5*size * ( 200.0 / length( mvPosition.xyz ) );
+          gl_Position = projectionMatrix * mvPosition;
+        }
+</script> 
+<script type = "x-shader/x-fragment" id = "fragmentshader">
+        uniform sampler2D texture;
+        varying vec3 vColor;
+        void main() {
+          vec4 outColor = texture2D( texture, gl_PointCoord );
+          gl_FragColor = outColor;
+        }
+</script>
+<style>
+  html {
+    background: white;
+    color: black;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    margin-top: 20px;
+    text-align: center;
+  }
+</style>
+</body > </html>

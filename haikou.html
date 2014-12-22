@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head> 
+		<title>webgl_ar</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	</head>
+<link href="haikou/integration-object.css" rel="stylesheet" />
+<script src="haikou/JSARToolKit.js"></script>
+<script src="haikou/three.js "></script>
+<script src="js/shaderwater.js"></script>
+<script src="js/ShaderGodRays.js"> </script>
+<script src="js/FresnelShader.js"></script>
+<script src="js/libs/tween.min.js"></script>
+<script src="js/Sparks.js"></script>
+<script src="js/Detector.js"></script>
+<script src="js/ParticleEngine.js"></script> 
+<script src="js/ParticleEngineExamples.js"></script>
+<script src="haikou/models.js"></script>
+<script src="haikou/fund.js"></script>
+<script src="haikou/particle.js"></script>
+<script src="haikou/arvideo.js"></script>
+<script src="haikou/corrupt.js"></script>
+<script src="haikou/basicscene.js"></script>
+<script>
+var clock = new THREE.Clock();
+var markers = {};
+var lastTime = 0;
+var timerrunning = false;
+var timerid;//到期消失
+var timerid3;//没有mark消失
+var scene;
+var loader = new THREE.JSONLoader();
+window.onload = function () {
+	initRenderer(); 
+	initText();
+	//THREEJS场景管理部分
+	createSceneAndCamera();
+	createLight();
+	//视频背景
+	var videoTex = new THREE.Texture(videoCanvas);
+	var plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2, 0), new THREE.MeshBasicMaterial({
+				map : videoTex
+			}));
+	plane.material.depthTest = false;
+	plane.material.depthWrite = false;
+	var videoCam = new THREE.Camera();
+	var videoScene = new THREE.Scene();
+	videoScene.add(plane);
+	videoScene.add(videoCam);
+	//包围盒&气泡
+	createBubbleAndBox();
+	//第一个模型
+	loadFirstModel();	
+	//第三个模型
+	loadThirdModel();
+	//水面
+	loadWaterFace();	
+	//地球仪
+	loadEarth();
+	//化石
+	loadStone();
+	//金字塔
+	loadPyramid();
+	initCorrupt();
+	initParticleEngine();	
+	initparticle();
+	//生成models	
+	generateModels();
+	setInterval(render, 33);
+	function render() {
+		//视频背景部分
+		if (video.ended)
+			video.play();
+		if (video.paused)
+			return;
+		if (window.paused)
+			return;
+		if (video.currentTime == video.duration) {
+			video.currentTime = 0;
+		}
+		if (video.currentTime == lastTime)
+			return;
+		lastTime = video.currentTime;
+		videoCanvas.getContext('2d').drawImage(video, 0, 0);
+		ctx.drawImage(videoCanvas, 0, 0, 320, 240);
+		var dt = new Date().getTime();
+		canvas.changed = true;
+		videoTex.needsUpdate = true;
+		//判别部分
+		var t = new Date();
+		var detected = detector.detectMarkerLite(raster, threshHold);
+		for (var idx = 0; idx < detected; idx++) {
+			var id = detector.getIdMarkerData(idx);
+			var currId;
+			if (id.packetLength > 4) {
+				currId =  - 1;
+			} else {
+				currId = 0;
+				for (var i = 0; i < id.packetLength; i++) {
+					currId = (currId << 8) | id.getPacketData(i);
+				}
+			}
+			if (!markers[currId]) {
+				markers[currId] = {};
+			}
+			detector.getTransformMatrix(idx, resultMat);
+			markers[currId].age = 0;
+			markers[currId].transform = Object.asCopy(resultMat);
+		}
+		//删除过期的
+		for (var i in markers) {
+			var r = markers[i];
+			if (r.age > 1) {
+				delete markers[i];
+				scene.remove(r.model);
+			}
+			r.age++;
+		}
+		selectModel();
+		var timer = 0.0001 * Date.now();
+		for (var i = 0, il = spheres.length; i < il; i++) {
+			var sphere = spheres[i];
+			sphere.position.x = 100 * Math.cos(timer + i);
+			sphere.position.y = Math.sin(timer + i * 1.1) * 85 - 15;
+		}
+		var delta = clock.getDelta();
+		verticalMirror.material.uniforms.time.value += delta;
+		//骨骼动画更新
+		THREE.AnimationHandler.update(delta);
+		//粒子效果更新
+		particleUpdate(delta);		
+		//粒子效果更新2
+		engine.update(delta * 0.5);
+		//粒子塌陷更新
+		corruptUpdate(delta);
+		renderer.clear();
+		renderer.render(videoScene, videoCam);
+		renderer.render(scene, camera);
+	}
+
+	
+	
+	function selectModel() {
+		var count = 0;
+		for (var i in markers) {
+			count++;
+			var m = markers[i];
+			if (!m.model) {
+				switch (i) {
+				case "0":
+					m.model = models[0];
+					models[0].add(horsemesh);
+					//models[0].add(cubemesh);
+					for (var i = 0, il = spheres.length; i < il; i++) {
+						var sphere = spheres[i];
+						models[0].add(sphere);
+					}
+					//models[0].add(verticalMirrorMesh);
+					models[0].add(group);
+					sparksEmitter.start();
+					document.getElementById('Div1').innerHTML = "";
+					if (timerrunning == false) {
+						console.log("start timer");
+						console.log(timerrunning);
+						timerid = setTimeout(parstop, 8000);
+						timerrunning = true;
+					}
+					text2.style.display="none";
+					break;
+				case "1":
+					m.model = models[1];
+					models[1].add(treemesh);
+					text2.style.display="block";
+					document.getElementById('Div1').innerHTML = "<font size='5' color='red'>海口虫发现于云南澄江。</font>" ;
+					break;
+				case "2":
+					m.model = models[2];
+					models[2].add(horsemesh2);
+					text2.style.display="block";
+					document.getElementById('Div1').innerHTML = 
+            "  <font size='3' color='red' style='FONT-FAMILY: 华文行楷'>海口虫身体扁平，像现代的文昌鱼类似，长不过几<br />"+
+            "厘米，最特别的是它身体那条长长的原脊椎，海口虫<br />"+
+            "很可能是迄今为止发现最古老的脊椎动物，也就是说<br />"+
+            "它很可能是我们脊椎动物远古祖先。<br />"+
+            "<br />"+
+            "澄江生物群中的海口虫化石数量丰富，保存了大量解剖学<br />"+
+            "细节，其中还包括其头部、大脑、眼部器官等。海口虫没<br />"+
+            "有坚硬的保护外壳，而是长出了原始的脊椎，以及感知周<br />"+
+            "围世界所用到的头部、大脑、眼睛等器官。</font>";
+					break;
+				case "3":
+					m.model = models[3];
+					models[3].add(stonemesh);
+					document.getElementById('Div1').innerHTML = "";
+					text2.style.display="none";
+					break;
+				case "4":
+					m.model = models[4];
+					models[4].add(pyramidmesh);
+					document.getElementById('Div1').innerHTML = "";
+					text2.style.display="none";
+					break;
+				case "5":
+					m.model = models[5];
+					models[5].add(parent);
+					models[5].add(engineroot);
+					document.getElementById('Div1').innerHTML = "";
+					text2.style.display="none";
+					break;
+				default:
+					break;
+				}
+				m.model.add(light1);
+				m.model.add(light2);
+				m.model.matrixAutoUpdate = false;
+				//cubemesh.position.z = -50;
+				scene.add(m.model);
+			}
+			copyMatrix(m.transform, tmp);
+			m.model.matrix.setFromArray(tmp);
+			m.model.matrixWorldNeedsUpdate = true;
+		}
+		if (count == 0) {
+			//console.log("count=0");
+			text2.style.display="none";
+			document.getElementById('Div1').innerHTML = "";
+			sparksEmitter.stop();
+			if (timerrunning == true) {
+				timerid3 = setTimeout(function () {
+						for (i = 0; i < particles.vertices.length; i++) {
+							particles.vertices[i].x = Number.POSITIVE_INFINITY;
+							particles.vertices[i].y = Number.POSITIVE_INFINITY;
+							particles.vertices[i].z = Number.POSITIVE_INFINITY;
+						}
+					}, 1000);
+			}
+			timerrunning = false;
+		}
+	}
+};
+
+</script>
+<script type = "x-shader/x-vertex" id = "vertexshader">
+        attribute float size;
+        attribute vec3 pcolor;
+        varying vec3 vColor;
+        void main() {
+          vColor = pcolor;
+          vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+          gl_PointSize = size * ( 200.0 / length( mvPosition.xyz ) );
+          gl_Position = projectionMatrix * mvPosition;
+        }
+</script> 
+<script type = "x-shader/x-fragment" id = "fragmentshader">
+        uniform sampler2D texture;
+        varying vec3 vColor;
+        void main() {
+          vec4 outColor = texture2D( texture, gl_PointCoord );
+          gl_FragColor = outColor * vec4( vColor, 1.0 );
+        }
+</script>
+<style>
+  html {
+    background: white;
+    color: black;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    margin-top: 20px;
+    text-align: center;
+  }
+</style>
+</body > </html>
